@@ -2,10 +2,14 @@ package org.apache.spark.sql.hudi.atest
 
 import org.apache.hudi.{DataSourceWriteOptions, HoodieSparkUtils}
 import org.apache.hudi.QuickstartUtils.getQuickstartWriteConfigs
+import org.apache.hudi.common.config.HoodieMetadataConfig
 import org.apache.hudi.common.model.{EventTimeAvroPayload, HoodieFailedWritesCleaningPolicy}
-import org.apache.hudi.config.{HoodieCleanConfig, HoodieWriteConfig}
+import org.apache.hudi.config.{HoodieCleanConfig, HoodieIndexConfig, HoodieLayoutConfig, HoodieWriteConfig}
+import org.apache.hudi.index.HoodieIndex.IndexType.BUCKET
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
 import org.apache.hudi.keygen.{ComplexAvroKeyGenerator, ComplexKeyGenerator}
+import org.apache.hudi.table.action.commit.SparkBucketIndexPartitioner
+import org.apache.hudi.table.storage.HoodieStorageLayout
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.execution.benchmark.CowTableReadBenchmark.spark
@@ -24,8 +28,8 @@ class SparkTest {
   private val database = "" + "file:///Users/wuwenchi/github/hudi/warehouse/database/"
   private val tablePath = database + tableName
   private val pkField = "pk1"
-  //  static String parField = "ts1";
   private val parField = "par1"
+//  private val parField = "par1,par2"
   private val preCom = "flong1"
   private val parall = 1
 
@@ -56,8 +60,16 @@ class SparkTest {
 
     sqlCreate()
 
-    spark.sql(s"insert into $tableName values ('id4','id2','a','a',1,2)")
-    spark.sql(s"select * from $tableName").show()
+//    spark.sql(s"insert into $tableName partition(par1 = 'a') values ('id4','id2','a',1,2), ('id1','id2','a',1,2)")
+//    spark.sql(s"insert overwrite table $tableName values ('id4','id2','a','a',1,2), ('id1','id2','a','a',1,2)")
+//    spark.sql(s"insert overwrite $tableName      partition(par1 = 'a') select 'id4','id2','a',1,2")
+//    spark.sql(s"insert overwrite $tableName      partition(par1 = 'a') select 'id4','id2','a',1,2")
+//    spark.sql(s"insert overwrite table tb5 partition(par1 = 'a') select 'id4','id2','a',1,2")
+    spark.sql(s"insert overwrite $tableName partition(par1 = 'a') values ('id4','id3','a',1,2), ('id1','id3','a',1,2)")
+//    sqlRead()
+    spark.sql(s"select _hoodie_file_name,pk1,pk2 from $tableName").show(false)
+//    spark.sql(s"select _hoodie_file_name,pk1,pk2 from $tableName timestamp as of '20221019181616510'").show(false)
+//    spark.sql(s"select * from $tableName").show()
   }
 
   def sqlCreate(): Unit = {
@@ -68,14 +80,15 @@ class SparkTest {
          |  pk1 string,
          |  pk2 string,
          |
-         |  par1 string,
          |  par2 string,
          |
          |  fint1 int,
-         |  flong1 long
+         |  flong1 long,
+         |  par1 string
          |
          |) using hudi
          | tblproperties ($hudiConfString)
+         | partitioned by (par1)
          | location '$tablePath'
        """.stripMargin)
   }
@@ -97,10 +110,22 @@ class SparkTest {
     conf += (DataSourceWriteOptions.PRECOMBINE_FIELD.key() -> preCom)
 
     // key gen
-    conf += (HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key() -> "org.apache.hudi.keygen.ComplexAvroKeyGenerator")
+//    conf += (HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key() -> "org.apache.hudi.keygen.ComplexAvroKeyGenerator")
+//    conf += (HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key() -> "org.apache.hudi.keygen.ComplexKeyGenerator")
+//    conf += (HoodieWriteConfig.KEYGENERATOR_TYPE.key() -> "complex")
     conf += (KeyGeneratorOptions.HIVE_STYLE_PARTITIONING_ENABLE.key -> false.toString)
 
     conf += (DataSourceWriteOptions.PAYLOAD_CLASS_NAME.key() -> "org.apache.hudi.common.model.EventTimeAvroPayload")
+
+    // metadata table enable
+    conf += (HoodieMetadataConfig.ENABLE.key() -> "true")
+
+    // bucket index
+    conf += (HoodieIndexConfig.INDEX_TYPE.key() -> BUCKET.name())
+    conf += (HoodieIndexConfig.BUCKET_INDEX_NUM_BUCKETS.key() -> "2")
+    conf += (HoodieIndexConfig.BUCKET_INDEX_HASH_FIELD.key() -> "pk1")
+    conf += (HoodieLayoutConfig.LAYOUT_TYPE.key() -> HoodieStorageLayout.LayoutType.BUCKET.name())
+    conf += (HoodieLayoutConfig.LAYOUT_PARTITIONER_CLASS_NAME.key() -> classOf[SparkBucketIndexPartitioner[_]].getName)
 
     conf += ("hoodie.upsert.shuffle.parallelism" -> parall.toString)
     conf += ("hoodie.insert.shuffle.parallelism" -> parall.toString)
@@ -126,7 +151,7 @@ class SparkTest {
   @Test
   def sqlRead(): Unit = {
     sqlCreate()
-    spark.sql(s"select _hoodie_file_name,pk2 from $tableName").show(false)
+    spark.sql(s"select _hoodie_file_name,pk1,pk2 from $tableName").show(false)
   }
 
   def IDx_IDx_ParX_ParA(id1:Int, id2:Int, par1:String): (String, String, String, String, Int, Long) = {
@@ -157,8 +182,9 @@ class SparkTest {
     import spark.implicits._
 
     Seq(
-      IDx_IDx_ParX_ParA(8,21,"a"),
-      IDx_IDx_ParX_ParA(1,22,"a")
+      IDx_IDx_ParX_ParA(1,31,"b"),
+      IDx_IDx_ParX_ParA(1,31,"a"),
+      IDx_IDx_ParX_ParA(9,2,"a")
     )
       .toDF("pk1", "pk2", "par1", "par2", "fint1", "flong1")
   }
@@ -170,8 +196,9 @@ class SparkTest {
     val dataFrame = getDataFrame2
 
     dataFrame.write.format("hudi")
+//      .bucketBy(10, "par1")
       .options(hudiConfMap)
-      .mode(SaveMode.Append)
+      .mode(SaveMode.Overwrite)
       .save(tablePath)
   }
 
