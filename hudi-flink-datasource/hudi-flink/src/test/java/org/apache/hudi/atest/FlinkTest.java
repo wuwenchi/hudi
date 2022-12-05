@@ -3,6 +3,7 @@ package org.apache.hudi.atest;
 import com.google.common.collect.Lists;
 import org.apache.avro.Schema;
 import org.apache.flink.api.common.RuntimeExecutionMode;
+import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.CoreOptions;
 import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
@@ -10,7 +11,6 @@ import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.ParallelSourceFunction;
-import org.apache.flink.table.api.TableResult;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.table.api.config.ExecutionConfigOptions;
 import org.apache.flink.table.api.config.TableConfigOptions;
@@ -23,27 +23,30 @@ import org.apache.flink.types.RowKind;
 import org.apache.flink.util.CloseableIterator;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.model.EventTimeAvroPayload;
+import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.WriteOperationType;
+import org.apache.hudi.config.HoodieCleanConfig;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.keygen.ComplexAvroKeyGenerator;
 import org.apache.hudi.sink.utils.Pipelines;
 import org.apache.hudi.util.AvroSchemaConverter;
 import org.apache.hudi.util.HoodiePipeline;
 import org.apache.hudi.util.StreamerUtil;
-import org.apache.hudi.utils.TestConfigurations;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedList;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+
+import static org.apache.hudi.utils.TestConfigurations.ROW_TYPE;
 
 public class FlinkTest {
 
@@ -53,36 +56,26 @@ public class FlinkTest {
   /* mvn package -DskipTests -Drat.skip=true -Dcheckstyle.skip */
 
   static String tableName = "tb5";
-  static String tablePath = ""
-      + "file:///Users/wuwenchi/github/hudi/warehouse/database/"
-      + tableName;
-  //  static String tablePath = ""
-//      + "/tmp/hudi/warehouse/database/"
-//      + tableName;
-  static String pkField = "pk1";
+  static String databaseName = "database";
+  static String pkField = "pk1,pk2";
   //  static String parField = "ts1";
   static String parField = "par1";
   //  static String parField = "par1,par2";
   static String preCom = "flong1";
   static int parall = 1;
+  static int pkNum = 2;
+  static int parNum = 1;
 
   static StreamExecutionEnvironment env;
-  //  static TableEnvironmentImpl streamTableEnv;
   static StreamTableEnvironment tEnv;
 
   static {
-    beforeClass();
-  }
-
-  public static void beforeClass() {
     createFlink();
-    createTable();
   }
 
   public static void createFlink() {
 
-    Configuration confData =
-        new Configuration();
+    Configuration confData = new Configuration();
     confData.setString("akka.ask.timeout", "1h");
     confData.setString("akka.watch.heartbeat.interval", "1h");
     confData.setString("akka.watch.heartbeat.pause", "1h");
@@ -90,6 +83,7 @@ public class FlinkTest {
     confData.setString(String.valueOf(CoreOptions.CHECK_LEAKED_CLASSLOADER), "false");
     confData.setString("rest.bind-port", "8080-9000");
     confData.setString(TableConfigOptions.LOCAL_TIME_ZONE, "UTC");
+
     env = StreamExecutionEnvironment.getExecutionEnvironment(confData);
     env.setRuntimeMode(RuntimeExecutionMode.STREAMING);
     env.enableCheckpointing(1000);
@@ -104,57 +98,19 @@ public class FlinkTest {
     env.setParallelism(parall);
 
     tEnv = StreamTableEnvironment.create(env);
-    tEnv.getConfig().getConfiguration()
-        .setInteger(ExecutionConfigOptions.TABLE_EXEC_RESOURCE_DEFAULT_PARALLELISM, 1);
+    tEnv.getConfig().getConfiguration().setInteger(ExecutionConfigOptions.TABLE_EXEC_RESOURCE_DEFAULT_PARALLELISM, 1);
 //    tEnv.getConfig().getConfiguration()
 //        .setInteger("sql-client.display.max-column-width", 10000000);
 //    tEnv.getConfig().getConfiguration()
 //        .setString("execution.runtime-mode", "streaming");
   }
 
-  public static void createTable() {
-
-    TestConfigurations.Sql tb1 = TestConfigurations.sql(tableName);
-    String sql = tb1
-
-        .pkField(pkField)
-//        .noPartition()
-        .partitionField(parField)
-
-//        .field("_hoodie_file_name string")
-
-        .field("pk1 string")
-        .field("pk2 string")
-
-        .field("par1 string")
-        .field("par2 string")
-
-        .field("fint1 int")
-        .field("flong1 bigint")
-//        .field("par1 string")
-
-//        .field("ts1 timestamp(3)")
-//        .field("ts2 timestamp(3)")
-
-        .options(getHudiConf().toMap())
-
-        .end();
-
-    tEnv.executeSql(sql);
+  public static String getTablePath() {
+    return "file:///Users/wuwenchi/github/hudi/warehouse/database/" + tableName;
   }
 
-  @Test
-  public void testCreate() {
-    ThreadLocal<String> local = new ThreadLocal<>();
-    ThreadLocal<String> local2 = new ThreadLocal<>();
-
-    IntStream.range(0, 10).forEach(i -> new Thread(() -> {
-      local.set(Thread.currentThread().getName() + ":" + i);
-      local2.set("werwerwer");
-      System.out.println("线程：" + Thread.currentThread().getName() + ",local:" + local.get());
-    }).start());
-    ConcurrentHashMap<String, String> stringStringConcurrentHashMap = new ConcurrentHashMap<>();
-//    stringStringConcurrentHashMap.put()
+  public String getWarehousePath() {
+    return "file:///Users/wuwenchi/github/hudi/warehouse";
   }
 
   @Test
@@ -243,21 +199,6 @@ public class FlinkTest {
     }
   }
 
-
-  public void insert(StreamTableEnvironment tEnv, String tableName) throws ExecutionException, InterruptedException {
-    String s = "insert into " + tableName + " values \n" + getDataString();
-//        + "('id8','id8','a','b',56,56000,TIMESTAMP '1970-01-01 00:00:06',TIMESTAMP '1970-01-01 00:00:08', x'0102030405060708090a0b0c0d0e0f10')";
-
-    TableResult tableResult = tEnv.executeSql(s);
-    tableResult.await();
-  }
-
-  @Test
-  public void sqlWrite() throws ExecutionException, InterruptedException {
-    insert(tEnv, tableName);
-//    insert(tEnv, tableName);
-  }
-
   @Test
   public void sqlRead() {
     CloseableIterator<Row> collect = tEnv.sqlQuery("select pk1,pk2 from " + tableName).execute().collect();
@@ -294,11 +235,11 @@ public class FlinkTest {
 //    System.out.println("===================================================");
   }
 
-  static public Configuration getHudiConf() {
+  public Configuration getHudiConf() {
 
     String schema = "{\"type\":\"record\",\"name\":\"record\",\"fields\":[" +
-        "{\"name\":\"pk1\",\"type\":\"string\"}," +
-        "{\"name\":\"pk2\",\"type\":\"string\"}," +
+        "{\"name\":\"pk1\",\"type\":\"int\"}," +
+        "{\"name\":\"pk2\",\"type\":\"int\"}," +
         "{\"name\":\"par1\",\"type\":[\"null\",\"string\"],\"default\":null}," +
         "{\"name\":\"par2\",\"type\":[\"null\",\"string\"],\"default\":null}," +
         "{\"name\":\"fint1\",\"type\":[\"null\",\"int\"],\"default\":null}," +
@@ -308,7 +249,7 @@ public class FlinkTest {
         "]}\n";
 
     Configuration conf = new Configuration();
-    conf.setString(FlinkOptions.PATH, tablePath);
+    conf.setString(FlinkOptions.PATH, getTablePath());
     conf.setString(FlinkOptions.TABLE_NAME, tableName);
     conf.setString(FlinkOptions.TABLE_TYPE, FlinkOptions.TABLE_TYPE_MERGE_ON_READ);
 //    conf.setString(FlinkOptions.TABLE_TYPE, FlinkOptions.TABLE_TYPE_COPY_ON_WRITE);
@@ -329,8 +270,18 @@ public class FlinkTest {
     // key and partition
     conf.setString(FlinkOptions.KEYGEN_CLASS_NAME, ComplexAvroKeyGenerator.class.getName());
 //    conf.setString(FlinkOptions.KEYGEN_TYPE, KeyGeneratorType.COMPLEX.name());
-    conf.setString(FlinkOptions.RECORD_KEY_FIELD, pkField);
-    conf.setString(FlinkOptions.PARTITION_PATH_FIELD, parField);
+
+    if (pkNum == 1) {
+      conf.setString(FlinkOptions.RECORD_KEY_FIELD, "pk1");
+    } else if (pkNum == 2) {
+      conf.setString(FlinkOptions.RECORD_KEY_FIELD, "pk1,pk2");
+    }
+
+    if (parNum == 1) {
+      conf.setString(FlinkOptions.PARTITION_PATH_FIELD, "par1");
+    } else if (parNum == 2) {
+      conf.setString(FlinkOptions.PARTITION_PATH_FIELD, "par2");
+    }
 
     // payload
     conf.setString(FlinkOptions.PAYLOAD_CLASS_NAME, EventTimeAvroPayload.class.getName());
@@ -370,6 +321,8 @@ public class FlinkTest {
     conf.setBoolean(HoodieMetadataConfig.ENABLE_METADATA_INDEX_BLOOM_FILTER.key(), true);
     conf.setInteger(HoodieMetadataConfig.METADATA_INDEX_BLOOM_FILTER_FILE_GROUP_COUNT.key(), 1);
 
+    conf.setString(HoodieCleanConfig.FAILED_WRITES_CLEANER_POLICY.key(), HoodieFailedWritesCleaningPolicy.NEVER.name());
+
     return conf;
   }
 
@@ -380,9 +333,7 @@ public class FlinkTest {
 
     // get schema and rowtype
     Schema sourceSchema = StreamerUtil.getSourceSchema(conf);
-    RowType rowType =
-        (RowType) AvroSchemaConverter.convertToDataType(sourceSchema)
-            .getLogicalType();
+    RowType rowType = (RowType) AvroSchemaConverter.convertToDataType(sourceSchema).getLogicalType();
     System.out.println(rowType);
 
     // get datastream
@@ -404,38 +355,33 @@ public class FlinkTest {
     env.execute();
   }
 
-  static public GenericRowData[] getData() {
+  static public GenericRowData[] getInput() {
     return new GenericRowData[]{
 //        IDx_IDx_PARx_PARA(2,1,"a"),
 //        IDx_IDx_PARx_PARA(11,10,"b"),
 //        IDx_IDx_PARx_PARA(10,10,"b"),
 //        IDx_IDx_PARx_PARA(9,10,"a"),
-        IDx_IDx_PARx_PARA("+I", 6, 16, "a")
+        IDx_IDx_PARx_PARx("+I", 1, 16, "a", "b"),
+        IDx_IDx_PARx_PARx("+I", 1, 17, "a", "c")
     };
   }
 
-  static public String getDataString() {
-    return Arrays.stream(getData())
+  static public String getInputString(GenericRowData[] input) {
+    return Arrays.stream(input)
         .filter(data -> data.getRowKind() == RowKind.INSERT)
-        .map(
-            data -> "(" +
-                "'" + data.getString(0).toString() + "'," +
-                "'" + data.getString(1).toString() + "'," +
-                "'" + data.getString(2).toString() + "'," +
-                "'" + data.getString(3).toString() + "'," +
-                data.getInt(4) + "," +
-                data.getLong(5) + ")"
-        )
-        .collect(Collectors.joining(","));
+        .map(data ->
+            "(" +
+                data.getInt(0) + ", " +
+                data.getInt(1) + ", " +
+                "'" + data.getString(2).toString() + "', " +
+                "'" + data.getString(3).toString() + "', " +
+                data.getInt(4) + ", " +
+                data.getLong(5) +
+                ")")
+        .collect(Collectors.joining(",\n"));
   }
 
-
-  @Test
-  public void testDataString() {
-    System.out.println(getDataString());
-  }
-
-  static public GenericRowData IDx_IDx_PARx_PARA(String opt, int id1, int id2, String par) {
+  static public GenericRowData IDx_IDx_PARx_PARx(String opt, int id1, int id2, String par1, String par2) {
     RowKind kind = null;
     switch (opt) {
       case "+I":
@@ -454,11 +400,11 @@ public class FlinkTest {
 
     GenericRowData rowData = new GenericRowData(kind, 6);
 
-    rowData.setField(0, StringData.fromString("id" + id1));
-    rowData.setField(1, StringData.fromString("id" + id2));
+    rowData.setField(0, id1);
+    rowData.setField(1, id2);
 
-    rowData.setField(2, StringData.fromString(par));
-    rowData.setField(3, StringData.fromString("a"));
+    rowData.setField(2, StringData.fromString(par1));
+    rowData.setField(3, StringData.fromString(par2));
 
     rowData.setField(4, 26);
     rowData.setField(5, 26L);
@@ -472,7 +418,7 @@ public class FlinkTest {
     @Override
     public void run(SourceContext<RowData> ctx) throws InterruptedException {
 
-      GenericRowData[] data = getData();
+      GenericRowData[] data = getInput();
       int length = data.length - 1;
       for (GenericRowData datum : data) {
         ctx.collect(datum);
@@ -515,10 +461,7 @@ public class FlinkTest {
 
     // ===========================================================
     // 直接赋值
-    int[][] inte = {
-        {1, 2, 4},
-        {3, 4}
-    };
+    int[][] inte = {{1, 2, 4}, {3, 4}};
     for (int i = 0; i < inte.length; i++) {
       for (int j = 0; j < inte[i].length; j++) {
         System.out.println(inte[i][j]);
@@ -528,10 +471,8 @@ public class FlinkTest {
     // ===========================================================
     // 先创建好引用
     int[][] ints3 = new int[4][5];
-    for (int[] i :
-        ints3) {
-      for (int j :
-          i) {
+    for (int[] i : ints3) {
+      for (int j : i) {
         System.out.println(j);
       }
     }
@@ -543,6 +484,76 @@ public class FlinkTest {
     ints1[0] = ints;
     ints1[1] = ints2;
     System.out.println(ints1[0].length + "  " + ints1[1].length);
+  }
+
+  public static class Sql {
+    private final Map<String, String> options;
+    private final String tableName;
+    private List<String> fields = new ArrayList<>();
+
+    public Sql(String tableName) {
+      options = new HashMap<>();
+      this.tableName = tableName;
+    }
+
+    public Sql option(ConfigOption<?> option, Object val) {
+      this.options.put(option.key(), val.toString());
+      return this;
+    }
+
+    public Sql option(String key, Object val) {
+      this.options.put(key, val.toString());
+      return this;
+    }
+
+    public Sql options(Map<String, String> options) {
+      this.options.putAll(options);
+      return this;
+    }
+
+    public Sql field(String fieldSchema) {
+      fields.add(fieldSchema);
+      return this;
+    }
+
+    public String end() {
+      if (this.fields.size() == 0) {
+        this.fields = ROW_TYPE.getFields().stream().map(RowType.RowField::asSummaryString).collect(Collectors.toList());
+      }
+
+      return getCreateHoodieTableDDL(this.tableName, this.fields, options);
+    }
+  }
+
+  public static String getCreateHoodieTableDDL(String tableName, List<String> fields, Map<String, String> options) {
+    StringBuilder builder = new StringBuilder();
+    builder.append("CREATE TABLE IF NOT EXISTS ").append(tableName).append("(\n");
+
+    int len = fields.size();
+    if (pkNum == 0) {
+      len = fields.size() - 1;
+    }
+    for (int i = 0; i < len; i++) {
+      builder.append("  ").append(fields.get(i)).append(",\n");
+    }
+    if (pkNum != 0) {
+      String pkStr = pkNum == 1 ? "pk1" : "pk1, pk2";
+      builder.append("  PRIMARY KEY(").append(pkStr).append(") NOT ENFORCED\n");
+    } else {
+      builder.append("  ").append(fields.get(fields.size() - 1)).append("\n");
+    }
+    builder.append(")\n");
+
+    if (parNum != 0) {
+      String parStr = parNum == 1 ? "par1" : "par1, par2";
+      builder.append("PARTITIONED BY (").append(parStr).append(")\n");
+    }
+
+    final String connector = options.computeIfAbsent("connector", k -> "hudi");
+    builder.append("with (\n" + "  'connector' = '").append(connector).append("'");
+    options.forEach((k, v) -> builder.append(",\n").append("  '").append(k).append("' = '").append(v).append("'"));
+    builder.append("\n)");
+    return builder.toString();
   }
 
 }
