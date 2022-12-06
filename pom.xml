@@ -661,7 +661,7 @@
           <configuration>
             <verbose>false</verbose>
             <failOnViolation>true</failOnViolation>
-            <includeTestSourceDirectory>true</includeTestSourceDirectory>
+            <includeTestSourceDirectory>false</includeTestSourceDirectory>
             <failOnWarning>false</failOnWarning>
             <sourceDirectory>${project.basedir}/src/main/scala</sourceDirectory>
             <testSourceDirectory>${project.basedir}/src/test/scala</testSourceDirectory>

@@ -2,8 +2,6 @@ package org.apache.hudi.atest;
 
 import org.junit.Test;
 
-import java.util.ArrayList;
-
 import static org.apache.hudi.utils.TestConfigurations.catalog;
 
 public class FlinkSqlTest extends FlinkTest {
@@ -105,30 +103,69 @@ public class FlinkSqlTest extends FlinkTest {
   }
 
   @Test
-  public void sqlCreateWithPrimaryKey() {
+  public void sqlCreateWeiBiao1() {
     sqlCreateCatalog();
     tEnv.executeSql("" +
-        "CREATE TABLE if not exists tb1(\n" +
-        "  id int PRIMARY KEY NOT ENFORCED, \n" +
-        "  name string, \n" +
+        "CREATE TABLE IF NOT EXISTS weibiao1(\n" +
+        "  id int PRIMARY KEY NOT enforced, \n" +
         "  price double,\n" +
         "  par string\n" +
-        ") PARTITIONED BY (par)\n" +
-        "WITH (\n" +
+        ") WITH (\n" +
         "'connector' = 'hudi',\n" +
-//        "'precombine.field' = 'no_precombine',\n" +
-        "'table.type' = 'MERGE_ON_READ' \n" +
+        "'table.type' = 'COPY_ON_WRITE',\n" +
+        "'precombine.field' = 'no_precombine'\n" +
         ");" +
-        "");
-
-    tEnv.executeSql("select * from tb1 ").print();
+        "").print();
+    tEnv.executeSql("" +
+        "INSERT INTO weibiao1 values \n" +
+        "(0, 1000.1, 'a'),\n" +
+        "(1, 1001.1, 'a'),\n" +
+        "(2, 1002.1, 'a'),\n" +
+        "(3, 1003.1, 'a'),\n" +
+        "(4, 1004.1, 'a'),\n" +
+        "(5, 1005.1, 'b'),\n" +
+        "(6, 1006.1, 'b'),\n" +
+        "(7, 1007.1, 'b'),\n" +
+        "(8, 1008.1, 'b'),\n" +
+        "(9, 1009.1, 'b');" +
+        "").print();
+    tEnv.executeSql("select * from weibiao1").print();
   }
 
   @Test
-  public void qwerqwe() {
-    ArrayList<String> strings = new ArrayList<>();
-    strings.add("asdf");
-    System.out.println(strings.contains(null));
-    System.out.println(strings.contains("asdf"));
+  public void sqlCreateTB4() {
+    sqlCreateCatalog();
+    tEnv.executeSql("" +
+        "CREATE TABLE tb4(\n" +
+        "  id int PRIMARY KEY NOT enforced,  -- 必须带，不然flink建表报错\n" +
+        "  pre string, \n" +
+        "  price double,\n" +
+        "  par string\n" +
+        ") WITH (\n" +
+        "'connector' = 'hudi',\n" +
+        "'table.type' = 'MERGE_ON_READ',\n" +
+        "'write.operation' = 'insert',\n" +
+        "'compaction.async.enabled' = 'false',\n" +
+        "'hoodie.compact.inline' = 'true',\n" +
+        "'compaction.delta_commits' = '1',\n" +
+        "'write.tasks' = '1',\n" +
+        "'compaction.tasks' = '1',\n" +
+        "'hoodie.datasource.write.keygenerator.class' = 'org.apache.hudi.keygen.NonpartitionedAvroKeyGenerator',  -- 非分区表必须带这个，否则后面spark插入会报错，默认是simple，\n" +
+        "'precombine.field' = 'pre'  -- 必须带这个，不然spark建表报错，bug\n" +
+        ");" +
+        "").print();
+    tEnv.executeSql("" +
+        "INSERT INTO tb4 values \n" +
+        "(0, 'n0', 0.1, 'a'),\n" +
+        "(1, 'n1', 1.1, 'a'),\n" +
+        "(2, 'n2', 2.1, 'a'),\n" +
+        "(3, 'n3', 3.1, 'a'),\n" +
+        "(4, 'n4', 4.1, 'a'),\n" +
+        "(5, 'n5', 5.1, 'b'),\n" +
+        "(6, 'n6', 6.1, 'b'),\n" +
+        "(7, 'n7', 7.1, 'b'),\n" +
+        "(8, 'n8', 8.1, 'b'),\n" +
+        "(9, 'n9', 9.1, 'b');" +
+        "").print();
   }
 }

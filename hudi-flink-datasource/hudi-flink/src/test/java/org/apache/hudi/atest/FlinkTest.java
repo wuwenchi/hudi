@@ -292,7 +292,7 @@ public class FlinkTest {
     conf.setBoolean(FlinkOptions.CLEAN_ASYNC_ENABLED, true);
     conf.setBoolean(FlinkOptions.COMPACTION_ASYNC_ENABLED, false);
     conf.setBoolean("hoodie.compact.inline", true);
-    conf.setInteger(FlinkOptions.COMPACTION_DELTA_COMMITS, 2);
+    conf.setInteger(FlinkOptions.COMPACTION_DELTA_COMMITS, 1);
 //    conf.setInteger(FlinkOptions.CLUSTERING_DELTA_COMMITS, 2);
 
     // metadata table
