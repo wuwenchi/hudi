@@ -22,9 +22,11 @@ public class FlinkSqlTest extends FlinkTest {
   @Test
   public void sqlCreate() {
 
+    // 默认，两个主键，一个分区
     sqlCreateCatalog();
 
     String ddl = getDDLString();
+//    System.out.println(ddl);
     tEnv.executeSql(ddl);
   }
 
@@ -51,7 +53,7 @@ public class FlinkSqlTest extends FlinkTest {
         .field("par2 string")
 
         .field("fint1 int")
-        .field("flong1 bigint")
+        .field("pre1 bigint")
 
 //        .field("ts1 timestamp(3)")
 //        .field("ts2 timestamp(3)")
@@ -76,96 +78,57 @@ public class FlinkSqlTest extends FlinkTest {
 
   @Test
   public void testSqlInsertInto() {
-    tableName = "tb1";
+    tableName = "tb5";
     sqlCreate();
     sqlInsertInto();
     sqlRead();
   }
 
-
-  @Test
-  public void sqlCreateWithoutPrimaryKey() {
-    sqlCreateCatalog();
-    tEnv.executeSql("" +
-        "CREATE TABLE tb1(\n" +
-        "  id int, \n" +
-        "  name string, \n" +
-        "  price double,\n" +
-        "  par string\n" +
-        ") PARTITIONED BY (par)\n" +
-        "WITH (\n" +
-        "'connector' = 'hudi',\n" +
-//        "'table.type' = 'MERGE_ON_READ' \n" +
-        "'table.type' = 'COPY_ON_WRITE' \n" +
-        ");" +
-        "");
-    // 两种模式都会报错
-  }
-
-  @Test
-  public void sqlCreateWeiBiao1() {
-    sqlCreateCatalog();
-    tEnv.executeSql("" +
-        "CREATE TABLE IF NOT EXISTS weibiao1(\n" +
-        "  id int PRIMARY KEY NOT enforced, \n" +
-        "  price double,\n" +
-        "  par string\n" +
-        ") WITH (\n" +
-        "'connector' = 'hudi',\n" +
-        "'table.type' = 'COPY_ON_WRITE',\n" +
-        "'precombine.field' = 'no_precombine'\n" +
-        ");" +
-        "").print();
-    tEnv.executeSql("" +
-        "INSERT INTO weibiao1 values \n" +
-        "(0, 1000.1, 'a'),\n" +
-        "(1, 1001.1, 'a'),\n" +
-        "(2, 1002.1, 'a'),\n" +
-        "(3, 1003.1, 'a'),\n" +
-        "(4, 1004.1, 'a'),\n" +
-        "(5, 1005.1, 'b'),\n" +
-        "(6, 1006.1, 'b'),\n" +
-        "(7, 1007.1, 'b'),\n" +
-        "(8, 1008.1, 'b'),\n" +
-        "(9, 1009.1, 'b');" +
-        "").print();
-    tEnv.executeSql("select * from weibiao1").print();
-  }
-
-  @Test
-  public void sqlCreateTB4() {
-    sqlCreateCatalog();
-    tEnv.executeSql("" +
-        "CREATE TABLE tb4(\n" +
-        "  id int PRIMARY KEY NOT enforced,  -- 必须带，不然flink建表报错\n" +
-        "  pre string, \n" +
-        "  price double,\n" +
-        "  par string\n" +
-        ") WITH (\n" +
-        "'connector' = 'hudi',\n" +
-        "'table.type' = 'MERGE_ON_READ',\n" +
-        "'write.operation' = 'insert',\n" +
-        "'compaction.async.enabled' = 'false',\n" +
-        "'hoodie.compact.inline' = 'true',\n" +
-        "'compaction.delta_commits' = '1',\n" +
-        "'write.tasks' = '1',\n" +
-        "'compaction.tasks' = '1',\n" +
-        "'hoodie.datasource.write.keygenerator.class' = 'org.apache.hudi.keygen.NonpartitionedAvroKeyGenerator',  -- 非分区表必须带这个，否则后面spark插入会报错，默认是simple，\n" +
-        "'precombine.field' = 'pre'  -- 必须带这个，不然spark建表报错，bug\n" +
-        ");" +
-        "").print();
-    tEnv.executeSql("" +
-        "INSERT INTO tb4 values \n" +
-        "(0, 'n0', 0.1, 'a'),\n" +
-        "(1, 'n1', 1.1, 'a'),\n" +
-        "(2, 'n2', 2.1, 'a'),\n" +
-        "(3, 'n3', 3.1, 'a'),\n" +
-        "(4, 'n4', 4.1, 'a'),\n" +
-        "(5, 'n5', 5.1, 'b'),\n" +
-        "(6, 'n6', 6.1, 'b'),\n" +
-        "(7, 'n7', 7.1, 'b'),\n" +
-        "(8, 'n8', 8.1, 'b'),\n" +
-        "(9, 'n9', 9.1, 'b');" +
-        "").print();
-  }
 }
+
+/*
+
+无分区、两次提交做一次合并的表：
+  CREATE TABLE tb7(
+    id int PRIMARY KEY NOT enforced,  -- 必须带，不然flink建表报错
+    price double,
+    pre string
+  ) WITH (
+    'connector' = 'hudi',
+    'table.type' = 'MERGE_ON_READ',
+    'write.operation' = 'insert',
+    'compaction.async.enabled' = 'false',
+    'hoodie.compact.inline' = 'true',
+    'compaction.delta_commits' = '2',
+    'write.tasks' = '1',
+    'compaction.tasks' = '1',
+    'hoodie.datasource.write.keygenerator.class' = 'org.apache.hudi.keygen.NonpartitionedAvroKeyGenerator',  -- 非分区表必须带这个，否则后面spark插入会报错，默认是simple，
+    'precombine.field' = 'pre'  -- 必须带这个，不然spark建表报错，bug
+  );
+
+
+  创建buckindex类型的表
+CREATE TABLE IF NOT EXISTS tb9(
+  pk1 int,
+  pk2 int,
+  par1 string,
+  par2 string,
+  fint1 int,
+  pre1 bigint,
+  PRIMARY KEY(pk1, pk2) NOT ENFORCED
+)
+PARTITIONED BY (par1)
+with (
+  'connector' = 'hudi',
+  'index.type' = 'BUCKET',
+  'write.bucket_assign.tasks' = '1',
+  'hoodie.bucket.index.hash.field' = 'pk1',
+  'metadata.enabled' = 'false',
+  'write.operation' = 'upsert',
+  'precombine.field' = 'pre1',
+  'hoodie.bucket.index.num.buckets' = '32',
+  'table.type' = 'MERGE_ON_READ',
+  'write.tasks' = '1'
+);
+
+ */

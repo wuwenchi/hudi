@@ -27,7 +27,9 @@ import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.config.HoodieCleanConfig;
+import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.configuration.FlinkOptions;
+import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.ComplexAvroKeyGenerator;
 import org.apache.hudi.sink.utils.Pipelines;
 import org.apache.hudi.util.AvroSchemaConverter;
@@ -61,10 +63,11 @@ public class FlinkTest {
   //  static String parField = "ts1";
   static String parField = "par1";
   //  static String parField = "par1,par2";
-  static String preCom = "flong1";
+  static String preCom = "pre1";
   static int parall = 1;
   static int pkNum = 2;
   static int parNum = 1;
+  static String warehouse = "file:///Users/wuwenchi/github/hudi/warehouse";
 
   static StreamExecutionEnvironment env;
   static StreamTableEnvironment tEnv;
@@ -106,11 +109,11 @@ public class FlinkTest {
   }
 
   public static String getTablePath() {
-    return "file:///Users/wuwenchi/github/hudi/warehouse/database/" + tableName;
+    return warehouse + "/" + databaseName + "/" + tableName;
   }
 
   public String getWarehousePath() {
-    return "file:///Users/wuwenchi/github/hudi/warehouse";
+    return warehouse;
   }
 
   @Test
@@ -221,7 +224,7 @@ public class FlinkTest {
         .column("par1 string")
         .column("par2 string")
         .column("fint1 int")
-        .column("flong1 bigint")
+        .column("pre1 bigint")
         .pk(pkField)
         .partition(parField)
         .options(getHudiConf().toMap());
@@ -237,16 +240,16 @@ public class FlinkTest {
 
   public Configuration getHudiConf() {
 
-    String schema = "{\"type\":\"record\",\"name\":\"record\",\"fields\":[" +
-        "{\"name\":\"pk1\",\"type\":\"int\"}," +
-        "{\"name\":\"pk2\",\"type\":\"int\"}," +
-        "{\"name\":\"par1\",\"type\":[\"null\",\"string\"],\"default\":null}," +
-        "{\"name\":\"par2\",\"type\":[\"null\",\"string\"],\"default\":null}," +
-        "{\"name\":\"fint1\",\"type\":[\"null\",\"int\"],\"default\":null}," +
-        "{\"name\":\"flong1\",\"type\":[\"null\",\"long\"],\"default\":null}" +
-//        "{\"name\":\"ts1\",\"type\":[\"null\",{\"type\":\"long\",\"logicalType\":\"timestamp-micros\"}],\"default\":null}," +
-//        "{\"name\":\"ts2\",\"type\":[\"null\",{\"type\":\"long\",\"logicalType\":\"timestamp-micros\"}],\"default\":null}" +
-        "]}\n";
+//    String schema = "{\"type\":\"record\",\"name\":\"record\",\"fields\":[" +
+//        "{\"name\":\"pk1\",\"type\":\"int\"}," +
+//        "{\"name\":\"pk2\",\"type\":\"int\"}," +
+//        "{\"name\":\"par1\",\"type\":[\"null\",\"string\"],\"default\":null}," +
+//        "{\"name\":\"par2\",\"type\":[\"null\",\"string\"],\"default\":null}," +
+//        "{\"name\":\"fint1\",\"type\":[\"null\",\"int\"],\"default\":null}," +
+//        "{\"name\":\"pre1\",\"type\":[\"null\",\"long\"],\"default\":null}" +
+////        "{\"name\":\"ts1\",\"type\":[\"null\",{\"type\":\"long\",\"logicalType\":\"timestamp-micros\"}],\"default\":null}," +
+////        "{\"name\":\"ts2\",\"type\":[\"null\",{\"type\":\"long\",\"logicalType\":\"timestamp-micros\"}],\"default\":null}" +
+//        "]}\n";
 
     Configuration conf = new Configuration();
     conf.setString(FlinkOptions.PATH, getTablePath());
@@ -255,7 +258,7 @@ public class FlinkTest {
 //    conf.setString(FlinkOptions.TABLE_TYPE, FlinkOptions.TABLE_TYPE_COPY_ON_WRITE);
     conf.setBoolean(FlinkOptions.CHANGELOG_ENABLED, false);
     conf.setString(FlinkOptions.OPERATION, WriteOperationType.UPSERT.value());
-    conf.setString(FlinkOptions.OPERATION, WriteOperationType.INSERT.value());
+//    conf.setString(FlinkOptions.OPERATION, WriteOperationType.INSERT.value());
 //    conf.setString(FlinkOptions.KEYGEN_TYPE, KeyGeneratorType.COMPLEX.name());
 
     // preCombine
@@ -264,7 +267,7 @@ public class FlinkTest {
 
     // bucket index
 //    conf.setString(FlinkOptions.INDEX_TYPE, HoodieIndex.IndexType.BUCKET.name());
-//    conf.setInteger(FlinkOptions.BUCKET_INDEX_NUM_BUCKETS, 2);
+//    conf.setInteger(FlinkOptions.BUCKET_INDEX_NUM_BUCKETS, 32);
 //    conf.setString(FlinkOptions.INDEX_KEY_FIELD, "pk1");
 
     // key and partition
@@ -292,18 +295,19 @@ public class FlinkTest {
     conf.setBoolean(FlinkOptions.CLEAN_ASYNC_ENABLED, true);
     conf.setBoolean(FlinkOptions.COMPACTION_ASYNC_ENABLED, false);
     conf.setBoolean("hoodie.compact.inline", true);
-    conf.setInteger(FlinkOptions.COMPACTION_DELTA_COMMITS, 1);
+    conf.setBoolean(HoodieCompactionConfig.INLINE_COMPACT.key(), true);
+    conf.setInteger(FlinkOptions.COMPACTION_DELTA_COMMITS, 10);
+    conf.setInteger(FlinkOptions.COMPACTION_TASKS, parall);
 //    conf.setInteger(FlinkOptions.CLUSTERING_DELTA_COMMITS, 2);
 
     // metadata table
     conf.setBoolean(FlinkOptions.METADATA_ENABLED, false);
 
-    // schema
-    conf.setString(FlinkOptions.SOURCE_AVRO_SCHEMA, schema);
+//    // schema
+//    conf.setString(FlinkOptions.SOURCE_AVRO_SCHEMA, schema);
 
     // write para
     conf.setInteger(FlinkOptions.WRITE_TASKS, parall);
-    conf.setInteger(FlinkOptions.COMPACTION_TASKS, parall);
     conf.setInteger(FlinkOptions.BUCKET_ASSIGN_TASKS, parall);
     conf.setInteger(FlinkOptions.CLUSTERING_TASKS, parall);
 
@@ -356,7 +360,7 @@ public class FlinkTest {
   }
 
   static public GenericRowData[] getInput() {
-    return new GenericRowData[]{
+    return new GenericRowData[] {
 //        IDx_IDx_PARx_PARA(2,1,"a"),
 //        IDx_IDx_PARx_PARA(11,10,"b"),
 //        IDx_IDx_PARx_PARA(10,10,"b"),

@@ -1,10 +1,11 @@
 package org.apache.spark.sql.hudi.atest
 
 import org.apache.hudi.common.config.HoodieMetadataConfig
-import org.apache.hudi.config.{HoodieIndexConfig, HoodieLayoutConfig, HoodieWriteConfig}
+import org.apache.hudi.config.{HoodieCompactionConfig, HoodieIndexConfig, HoodieLayoutConfig, HoodieStorageConfig, HoodieWriteConfig}
 import org.apache.hudi.index.HoodieIndex.IndexType.{BUCKET, SIMPLE}
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
 import org.apache.hudi.table.action.commit.SparkBucketIndexPartitioner
+import org.apache.hudi.table.action.compact.CompactionTriggerStrategy
 import org.apache.hudi.table.storage.HoodieStorageLayout
 import org.apache.hudi.{DataSourceWriteOptions, HoodieSparkUtils}
 import org.apache.spark.SparkConf
@@ -20,12 +21,13 @@ class Spark3Test {
 
   var tableName = "tb4"
   val database = "database"
-  val databasePath: String = "" + "file:///Users/wuwenchi/github/hudi/warehouse/database/"
+  val databasePath: String = "file:///Users/wuwenchi/github/hudi/warehouse/database/"
   val pkField = "pk1,pk2"
   //  private val parField = "par1,par2"
-  val preCom = "flong1"
+  val preCom = "pre1"
   val parall = 1
   var parNum = 1
+  var pkNum = 2
   val parField: String = {
     if (parNum == 1) {
       "par1"
@@ -49,12 +51,12 @@ class Spark3Test {
     .config(sparkConf())
     .getOrCreate()
 
-  def inputData:  Seq[(String, String, String, String, Int, Long)] = {
+  def inputData: Seq[(Int, Int, String, String, Int, Long)] = {
     val tuples = Seq(
 //      IDx_IDx_ParX_ParX(1, 1, "a", "b"),
 //      IDx_IDx_ParX_ParX(2, 1, "a", "c"),
-      IDx_IDx_ParX_ParX(9, 2, "a", "a"),
-      IDx_IDx_ParX_ParX(9, 2, "a", "e")
+      IDx_IDx_ParX_ParX(1, 1, "a", "spark"),
+      IDx_IDx_ParX_ParX(1, 2, "a", "spark")
     )
     tuples
   }
@@ -73,17 +75,23 @@ class Spark3Test {
     conf += ("type" -> tableType)
     //    conf += (DataSourceWriteOptions.TABLE_TYPE.key() -> DataSourceWriteOptions.COW_TABLE_TYPE_OPT_VAL())
     conf += (DataSourceWriteOptions.OPERATION.key() -> DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
-    conf += (DataSourceWriteOptions.OPERATION.key() -> DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL)
+//    conf += (DataSourceWriteOptions.OPERATION.key() -> DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL)
 
-    conf += (DataSourceWriteOptions.RECORDKEY_FIELD.key() -> pkField)
-    conf += ("primaryKey" -> pkField)
-    conf += (DataSourceWriteOptions.PARTITIONPATH_FIELD.key() -> parField)
+//    conf += (DataSourceWriteOptions.RECORDKEY_FIELD.key() -> pkField)
 //    conf += (DataSourceWriteOptions.PRECOMBINE_FIELD.key() -> preCom)
 
     // key gen
+    if (pkNum == 2) {
+      conf += ("primaryKey" -> "pk1,pk2")
+    } else {
+      conf += ("primaryKey" -> "pk1")
+    }
     //    conf += (HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key() -> "org.apache.hudi.keygen.ComplexAvroKeyGenerator")
     //    conf += (HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key() -> "org.apache.hudi.keygen.ComplexKeyGenerator")
     //    conf += (HoodieWriteConfig.KEYGENERATOR_TYPE.key() -> "complex")
+
+    // partition
+    conf += (DataSourceWriteOptions.PARTITIONPATH_FIELD.key() -> parField)
     conf += (KeyGeneratorOptions.HIVE_STYLE_PARTITIONING_ENABLE.key -> false.toString)
 
     conf += (DataSourceWriteOptions.PAYLOAD_CLASS_NAME.key() -> "org.apache.hudi.common.model.EventTimeAvroPayload")
@@ -91,13 +99,23 @@ class Spark3Test {
     // metadata table enable
     conf += (HoodieMetadataConfig.ENABLE.key() -> "false")
 
+    // inline compaction
+    conf += (HoodieCompactionConfig.INLINE_COMPACT.key() -> "true")
+    conf += (HoodieCompactionConfig.INLINE_LOG_COMPACT.key() -> "true")
+    conf += (HoodieCompactionConfig.INLINE_COMPACT_NUM_DELTA_COMMITS.key() -> "100")
+    conf += (HoodieCompactionConfig.INLINE_COMPACT_TRIGGER_STRATEGY.key() -> CompactionTriggerStrategy.NUM_COMMITS.name)
+
     // simple index
-    conf += (HoodieIndexConfig.INDEX_TYPE.key() -> SIMPLE.name())
+//    conf += (HoodieIndexConfig.INDEX_TYPE.key() -> SIMPLE.name())
 
 //    // bucket index
-//    conf += (HoodieIndexConfig.INDEX_TYPE.key() -> BUCKET.name())
-//    conf += (HoodieIndexConfig.BUCKET_INDEX_NUM_BUCKETS.key() -> "2")
-//    conf += (HoodieIndexConfig.BUCKET_INDEX_HASH_FIELD.key() -> "pk1")
+    conf += (HoodieIndexConfig.INDEX_TYPE.key() -> BUCKET.name())
+    conf += (HoodieIndexConfig.BUCKET_INDEX_NUM_BUCKETS.key() -> "32")
+    conf += (HoodieIndexConfig.BUCKET_INDEX_HASH_FIELD.key() -> "pk1")
+    conf += (HoodieIndexConfig.BUCKET_INDEX_MIN_NUM_BUCKETS.key() -> "32")
+    conf += (HoodieIndexConfig.BUCKET_INDEX_MAX_NUM_BUCKETS.key() -> "256")
+    conf += (HoodieIndexConfig.BUCKET_INDEX_ENGINE_TYPE.key() -> "CONSISTENT_HASHING")
+    conf += (HoodieIndexConfig.BUCKET_SPLIT_THRESHOLD.key() -> "1.1")
 //    conf += (HoodieLayoutConfig.LAYOUT_TYPE.key() -> HoodieStorageLayout.LayoutType.BUCKET.name())
 //    conf += (HoodieLayoutConfig.LAYOUT_PARTITIONER_CLASS_NAME.key() -> classOf[SparkBucketIndexPartitioner[_]].getName)
 
@@ -119,10 +137,6 @@ class Spark3Test {
     sparkConf
   }
 
-  def hudiConfString: String = {
-    hudiConfMap.map(kv => kv._1 + "='" + kv._2 + "'").mkString(",")
-  }
-
   @Test
   def testHudiConf(): Unit = {
     val conf = hudiConfMap
@@ -136,44 +150,44 @@ class Spark3Test {
     ("id" + id1, "id" + id2, par1, "a", 12, 4)
   }
 
-  def IDx_IDx_ParX_ParX(id1: Int, id2: Int, par1: String, par2: String): (String, String, String, String, Int, Long) = {
-    ("id" + id1, "id" + id2, par1, par2, 12, 4)
+  def IDx_IDx_ParX_ParX(id1: Int, id2: Int, par1: String, par2: String): (Int, Int, String, String, Int, Long) = {
+    (id1, id2, par1, par2, 12, 28)
   }
 
 
 
-  def getDataFrame(inputData : Seq[(String, String, String, String, Int, Long)]): DataFrame = {
+  def getDataFrame(inputData : Seq[(Int, Int, String, String, Int, Long)]): DataFrame = {
     import spark.implicits._
 
-    inputData.toDF("pk1", "pk2", "par1", "par2", "fint1", "flong1")
+    inputData.toDF("pk1", "pk2", "par1", "par2", "fint1", "pre1")
 
 //    Seq(
 //      IDx_IDx_ParX_ParA(1, 31, "b"),
 //      IDx_IDx_ParX_ParA(1, 31, "a"),
 //      IDx_IDx_ParX_ParA(9, 2, "a")
 //    )
-//      .toDF("pk1", "pk2", "par1", "par2", "fint1", "flong1")
+//      .toDF("pk1", "pk2", "par1", "par2", "fint1", "pre1")
   }
 
-  def getInputString(inputData: Seq[(String, String, String, String, Int, Long)]): String = {
+  def getInputString(inputData: Seq[(Int, Int, String, String, Int, Long)]): String = {
     getInputString(inputData, parNum)
   }
 
-  def getInputString(inputData : Seq[(String, String, String, String, Int, Long)], par:Int): String = {
+  def getInputString(inputData : Seq[(Int, Int, String, String, Int, Long)], par:Int): String = {
     if (par == 1) {
       inputData.map(data => {
         s"""
-           |("${data._1}", "${data._2}", "${data._4}", ${data._5}, ${data._6}, "${data._3}") """.stripMargin
+           |(${data._1}, ${data._2}, "${data._4}", ${data._5}, ${data._6}, "${data._3}") """.stripMargin
       }).mkString(", ")
     } else if (par == 2) {
       inputData.map(data => {
         s"""
-           |("${data._1}", "${data._2}", ${data._5}, ${data._6}, "${data._3}", "${data._4}") """.stripMargin
+           |(${data._1}, ${data._2}, ${data._5}, ${data._6}, "${data._3}", "${data._4}") """.stripMargin
       }).mkString(", ")
     } else {
       inputData.map(data => {
         s"""
-           |("${data._1}", "${data._2}", "${data._3}", "${data._4}", ${data._5}, ${data._6}) """.stripMargin
+           |(${data._1}, ${data._2}, "${data._3}", "${data._4}", ${data._5}, ${data._6}) """.stripMargin
       }).mkString(", ")
     }
   }
