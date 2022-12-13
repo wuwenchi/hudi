@@ -8,6 +8,7 @@ import org.apache.hudi.client.clustering.plan.strategy.SparkConsistentBucketClus
 import org.apache.hudi.client.clustering.run.strategy.SparkConsistentBucketClusteringExecutionStrategy;
 import org.apache.hudi.client.clustering.update.strategy.SparkConsistentBucketDuplicateUpdateStrategy;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
+import org.apache.hudi.common.config.ConfigProperty;
 import org.apache.hudi.common.fs.ConsistencyGuardConfig;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableConfig;
@@ -52,6 +53,7 @@ public class Spark3ConsistentClustering {
   String tableName = "tb5";
   String pkField;
   String parField;
+  String hashField;
   HoodieWriteConfig config;
 
   void getSparkEnv() {
@@ -84,34 +86,44 @@ public class Spark3ConsistentClustering {
     sqlContext = new SQLContext(sparkSession);
   }
 
-  protected Properties getPropertiesForKeyGen() {
+  public String getBasePath() {
+    return "/home/wuwenchi/github/hudi/warehouse/database/" + tableName;
+  }
+
+  public void setup(int maxFileSize) throws IOException {
+    getSparkEnv();
+
     Properties properties = new Properties();
     properties.put("hoodie.datasource.write.recordkey.field", pkField);
     properties.put("hoodie.datasource.write.partitionpath.field", parField);
     properties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), pkField);
     properties.put(HoodieTableConfig.PARTITION_FIELDS.key(), parField);
     properties.put(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME.key(), ComplexAvroKeyGenerator.class.getName());
-    return properties;
-  }
+    properties.put(HoodieIndexConfig.BUCKET_INDEX_HASH_FIELD.key(), hashField);
 
-  public String getBasePath() {
-    return "/Users/wuwenchi/github/hudi/warehouse/database/" + tableName;
-  }
-
-  public void setup(int maxFileSize) throws IOException {
-    getSparkEnv();
-    Properties props = getPropertiesForKeyGen();
-    metaClient = HoodieTestUtils.init(hadoopConf, getBasePath(), HoodieTableType.MERGE_ON_READ, getPropertiesForKeyGen());
-    config = getConfigBuilder().withProps(props)
+    metaClient = HoodieTestUtils.init(hadoopConf, getBasePath(), HoodieTableType.MERGE_ON_READ, properties);
+    config = getConfigBuilder().withProps(properties)
         .withAutoCommit(false)
-        .withIndexConfig(HoodieIndexConfig.newBuilder().fromProperties(props)
-            .withIndexType(HoodieIndex.IndexType.BUCKET).withBucketIndexEngineType(HoodieIndex.BucketIndexEngineType.CONSISTENT_HASHING)
-            .withBucketNum("2").withBucketMaxNum(64).withBucketMinNum(2).build())
-        .withStorageConfig(HoodieStorageConfig.newBuilder().parquetMaxFileSize(maxFileSize).build())
-        .withClusteringConfig(HoodieClusteringConfig.newBuilder()
-            .withClusteringPlanStrategyClass(SparkConsistentBucketClusteringPlanStrategy.class.getName())
-            .withClusteringExecutionStrategyClass(SparkConsistentBucketClusteringExecutionStrategy.class.getName())
-            .withClusteringUpdatesStrategy(SparkConsistentBucketDuplicateUpdateStrategy.class.getName()).build())
+        .withIndexConfig(
+            HoodieIndexConfig.newBuilder()
+                .fromProperties(properties)
+                .withIndexType(HoodieIndex.IndexType.BUCKET)
+                .withBucketIndexEngineType(HoodieIndex.BucketIndexEngineType.CONSISTENT_HASHING)
+                .withBucketNum("2")
+                .withBucketMaxNum(64)
+                .withIndexKeyField(hashField)
+                .withBucketMinNum(2)
+                .build())
+        .withStorageConfig(
+            HoodieStorageConfig.newBuilder()
+                .parquetMaxFileSize(maxFileSize)
+                .build())
+        .withClusteringConfig(
+            HoodieClusteringConfig.newBuilder()
+                .withClusteringPlanStrategyClass(SparkConsistentBucketClusteringPlanStrategy.class.getName())
+                .withClusteringExecutionStrategyClass(SparkConsistentBucketClusteringExecutionStrategy.class.getName())
+                .withClusteringUpdatesStrategy(SparkConsistentBucketDuplicateUpdateStrategy.class.getName())
+                .build())
         .build();
 
     writeClient = new SparkRDDWriteClient(context, config);
@@ -125,15 +137,33 @@ public class Spark3ConsistentClustering {
       "{\"name\":\"fint1\",\"type\":[\"null\",\"int\"],\"default\":null}," +
       "{\"name\":\"pre1\",\"type\":[\"null\",\"long\"],\"default\":null}" +
       "]}\n";
-    return HoodieWriteConfig.newBuilder().withPath(getBasePath()).withSchema(schema)
-        .withParallelism(1, 1).withBulkInsertParallelism(1).withFinalizeWriteParallelism(1).withDeleteParallelism(1)
+    return HoodieWriteConfig.newBuilder()
+        .withPath(getBasePath())
+        .withSchema(schema)
+        .withParallelism(1, 1)
+        .withBulkInsertParallelism(1)
+        .withFinalizeWriteParallelism(1)
+        .withDeleteParallelism(1)
         .withWriteStatusClass(MetadataMergeWriteStatus.class)
-        .withConsistencyGuardConfig(ConsistencyGuardConfig.newBuilder().withConsistencyCheckEnabled(true).build())
-        .withCompactionConfig(HoodieCompactionConfig.newBuilder().compactionSmallFileSize(1024 * 1024).build())
-        .withStorageConfig(HoodieStorageConfig.newBuilder().hfileMaxFileSize(1024 * 1024).parquetMaxFileSize(1024 * 1024).build())
+        .withConsistencyGuardConfig(
+            ConsistencyGuardConfig.newBuilder()
+                .withConsistencyCheckEnabled(true)
+                .build())
+        .withCompactionConfig(
+            HoodieCompactionConfig.newBuilder()
+                .compactionSmallFileSize(1024 * 1024)
+                .build())
+        .withStorageConfig(
+            HoodieStorageConfig.newBuilder()
+                .hfileMaxFileSize(1024 * 1024)
+                .parquetMaxFileSize(1024 * 1024)
+                .build())
         .forTable("test-trip-table")
-        .withEmbeddedTimelineServerEnabled(true).withFileSystemViewConfig(FileSystemViewStorageConfig.newBuilder()
-            .withStorageType(FileSystemViewStorageType.EMBEDDED_KV_STORE).build());
+        .withEmbeddedTimelineServerEnabled(true)
+        .withFileSystemViewConfig(
+            FileSystemViewStorageConfig.newBuilder()
+                .withStorageType(FileSystemViewStorageType.EMBEDDED_KV_STORE)
+                .build());
   }
 
 
@@ -142,6 +172,7 @@ public class Spark3ConsistentClustering {
     tableName = "tb5";
     pkField = "pk1,pk2";
     parField = "par1";
+    hashField = "pk1";
 
     setup(512);
 

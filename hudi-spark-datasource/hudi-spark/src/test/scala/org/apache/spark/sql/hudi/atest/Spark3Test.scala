@@ -21,7 +21,7 @@ class Spark3Test {
 
   var tableName = "tb4"
   val database = "database"
-  val databasePath: String = "file:///Users/wuwenchi/github/hudi/warehouse/database/"
+  val databasePath: String = "file:///home/wuwenchi/github/hudi/warehouse/database/"
   val pkField = "pk1,pk2"
   //  private val parField = "par1,par2"
   val preCom = "pre1"
@@ -116,6 +116,7 @@ class Spark3Test {
     conf += (HoodieIndexConfig.BUCKET_INDEX_MAX_NUM_BUCKETS.key() -> "256")
     conf += (HoodieIndexConfig.BUCKET_INDEX_ENGINE_TYPE.key() -> "CONSISTENT_HASHING")
     conf += (HoodieIndexConfig.BUCKET_SPLIT_THRESHOLD.key() -> "1.1")
+    conf += (HoodieIndexConfig.BUCKET_MERGE_THRESHOLD.key() -> "0.9")
 //    conf += (HoodieLayoutConfig.LAYOUT_TYPE.key() -> HoodieStorageLayout.LayoutType.BUCKET.name())
 //    conf += (HoodieLayoutConfig.LAYOUT_PARTITIONER_CLASS_NAME.key() -> classOf[SparkBucketIndexPartitioner[_]].getName)
 

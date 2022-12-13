@@ -3,6 +3,36 @@ package org.apache.spark.sql.hudi.atest
 import org.apache.spark.sql.DataFrame
 import org.junit.Test
 
+/*
+
+bin/spark-sql --packages org.apache.hudi:hudi-spark3.2-bundle_2.12:0.12.1 \
+--conf 'spark.serializer=org.apache.spark.serializer.KryoSerializer' \
+--conf 'spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension' \
+--conf 'spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog'
+
+bucket index：
+
+CREATE TABLE IF NOT EXISTS tb4 (
+  id int ,
+  pre string,
+  price double,
+  par string
+) using hudi
+ partitioned by (par)
+ options (
+  type='mor',
+  primaryKey='id',
+  preCombineField='pre',
+  hoodie.bucket.index.num.buckets='2',
+  hoodie.index.type='BUCKET',
+  hoodie.bucket.index.hash.field='id',
+  hoodie.datasource.write.hive_style_partitioning='false',
+  hoodie.datasource.write.operation='upsert'
+);
+ location 'file:///tmp/hudi/database/tb4'
+
+ */
+
 class Spark3SqlTest extends Spark3Test {
 
   @Test
@@ -14,7 +44,7 @@ class Spark3SqlTest extends Spark3Test {
     spark.sql(ddl)
   }
 
-  def getSqlCreateDDL(): String = {
+  def getSqlCreateDDL: String = {
 
     var partition = ""
     if (parNum == 1) {
@@ -66,14 +96,14 @@ class Spark3SqlTest extends Spark3Test {
   @Test
   def sqlInsertInto(): Unit = {
     var sqlString = s"insert into $tableName values ${getInputString(inputData)}"
-    sqlString =
-      s"""
-         |insert into $tableName values
-         |(1,1,'a','spark',1,2),
-         |(20,1,'a','spark',1,2),
-         |(1,1,'b','spark',1,2),
-         |(20,1,'b','spark',1,2)
-         |""".stripMargin
+//    sqlString =
+//      s"""
+//         |insert into $tableName values
+//         |(1,1,'a','spark',1,2),
+//         |(20,1,'a','spark',1,2),
+//         |(1,1,'b','spark',1,2),
+//         |(20,1,'b','spark',1,2)
+//         |""".stripMargin
 //        print(sqlString)
     spark.sql(sqlString).show(false)
   }
@@ -126,41 +156,4 @@ class Spark3SqlTest extends Spark3Test {
 //    sqlClustering()
   }
 
-  @Test
-  def clustering(): Unit = {
-    val frame: DataFrame = spark.table(tableName)
-
-  }
-
 }
-
-
-/*
-
-bin/spark-sql --packages org.apache.hudi:hudi-spark3.2-bundle_2.12:0.12.1 \
---conf 'spark.serializer=org.apache.spark.serializer.KryoSerializer' \
---conf 'spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension' \
---conf 'spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog'
-
-bucket index：
-
-CREATE TABLE IF NOT EXISTS tb4 (
-  id int ,
-  pre string,
-  price double,
-  par string
-) using hudi
- partitioned by (par)
- options (
-  type='mor',
-  primaryKey='id',
-  preCombineField='pre',
-  hoodie.bucket.index.num.buckets='2',
-  hoodie.index.type='BUCKET',
-  hoodie.bucket.index.hash.field='id',
-  hoodie.datasource.write.hive_style_partitioning='false',
-  hoodie.datasource.write.operation='upsert'
-);
- location 'file:///tmp/hudi/database/tb4'
-
- */
